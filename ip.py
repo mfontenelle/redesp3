@@ -24,7 +24,7 @@ class IP:
         else:
             # atua como roteador
             next_hop = self._next_hop(dst_addr)
-            # TODO: Trate corretamente o campo TTL do datagrama
+            # TODO: Trate corretamente o campo TTL do datagramaa
             self.enlace.enviar(datagrama, next_hop)
 
     def _next_hop(self, dest_addr):
