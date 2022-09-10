@@ -1,5 +1,9 @@
 from iputils import *
-
+import struct
+from random import randint
+from ipaddress import ip_network, ip_address
+#from loguru import logger
+import logging as logger
 
 class IP:
     def __init__(self, enlace):
@@ -14,24 +18,105 @@ class IP:
         self.ignore_checksum = self.enlace.ignore_checksum
         self.meu_endereco = None
 
+    def _make_ipv4_header(
+        self, src_addr, dest_addr, datagram=None, proto=IPPROTO_TCP, ttl=255, payload=""
+    ):
+        version = 4 << 4
+        ihl = 5
+        vihl = version + ihl
+        src_addr = str2addr(src_addr)
+        dest_addr = str2addr(dest_addr)
+
+        if not datagram:
+            dscp = 0 << 6
+            ecn = 0
+            ident = self._twos_comp(randint(0, 2**16), 16)
+            flags = (0 << 15) | (0 << 14) | (0 << 13)
+            frag_offset = 0
+
+        else:
+            dscp, ecn, ident, flags, frag_offset, _, _, _, _, _ = read_ipv4_header(datagram)
+
+        dscpecn = dscp + ecn
+        flags |= frag_offset
+        ttl = self._twos_comp(ttl, 8)
+        tlen = self._twos_comp(len(payload) + 20, 16)
+
+        header = (
+            struct.pack("!bbhhhbbh", vihl, dscpecn, tlen, ident, flags, ttl, proto, 0)
+            + src_addr
+            + dest_addr
+        )
+        checksum = self._twos_comp(calc_checksum(header[: 4 * ihl]), 16)
+        header = (
+            struct.pack("!bbhhhbbh", vihl, dscpecn, tlen, ident, flags, ttl, proto, checksum)
+            + src_addr
+            + dest_addr
+        )
+        return header
+
+    def _make_icmp_payload(self, datagram):
+        payload = datagram[:28]
+        tlen = len(payload) + 8
+        header = struct.pack("!bbhi", 11, 0, 0, tlen) + payload
+        checksum = self._twos_comp(calc_checksum(header), 16)
+        header = struct.pack("!bbhi", 11, 0, checksum, tlen) + payload
+        return header
+
     def __raw_recv(self, datagrama):
-        dscp, ecn, identification, flags, frag_offset, ttl, proto, \
-           src_addr, dst_addr, payload = read_ipv4_header(datagrama)
+        (
+            dscp,
+            ecn,
+            identification,
+            flags,
+            frag_offset,
+            ttl,
+            proto,
+            src_addr,
+            dst_addr,
+            payload,
+        ) = read_ipv4_header(datagrama)
         if dst_addr == self.meu_endereco:
             # atua como host
             if proto == IPPROTO_TCP and self.callback:
+                logger.info(f"Callback {src_addr} -> {dst_addr}.")
                 self.callback(src_addr, dst_addr, payload)
         else:
             # atua como roteador
+            ttl -= 1
             next_hop = self._next_hop(dst_addr)
-            # TODO: Trate corretamente o campo TTL do datagramaa
-            self.enlace.enviar(datagrama, next_hop)
+            logger.debug(f"TTL atualizado para {ttl}.")
+
+            if ttl > 0:
+                header = self._make_ipv4_header(src_addr, dst_addr, datagram=datagrama, ttl=ttl)
+                datagram = header + payload
+            else:
+                next_hop = self._next_hop(src_addr)
+                payload = self._make_icmp_payload(datagrama)
+                header = self._make_ipv4_header(
+                    self.meu_endereco,
+                    src_addr,
+                    datagram=datagrama,
+                    payload=payload,
+                    proto=IPPROTO_ICMP,
+                )
+                datagram = header + payload
+            logger.info(f"Enviando datagrama para {next_hop}.")
+            self.enlace.enviar(datagram, next_hop)
 
     def _next_hop(self, dest_addr):
-        # TODO: Use a tabela de encaminhamento para determinar o próximo salto
-        # (next_hop) a partir do endereço de destino do datagrama (dest_addr).
-        # Retorne o next_hop para o dest_addr fornecido.
-        pass
+        dest_addr = ip_address(dest_addr)
+
+        for cidr, next_hop in self.routing_table:
+            if dest_addr in cidr:
+                return str(next_hop)
+        return None
+
+    def _twos_comp(self, value, bits):
+        """compute the 2's complement of int value val"""
+        if (value & (1 << (bits - 1))) != 0:  # if sign bit is set e.g., 8bit: 128-255
+            value = value - (1 << bits)  # compute negative value
+        return value  # return positive value as is
 
     def definir_endereco_host(self, meu_endereco):
         """
@@ -49,9 +134,10 @@ class IP:
         Onde os CIDR são fornecidos no formato 'x.y.z.w/n', e os
         next_hop são fornecidos no formato 'x.y.z.w'.
         """
-        # TODO: Guarde a tabela de encaminhamento. Se julgar conveniente,
-        # converta-a em uma estrutura de dados mais eficiente.
-        pass
+        self.routing_table = []
+        for cidr, next_hop in tabela:
+            self.routing_table.append((ip_network(cidr), ip_address(next_hop)))
+        self.routing_table.sort(key=lambda pair: pair[0].prefixlen, reverse=True)
 
     def registrar_recebedor(self, callback):
         """
@@ -65,6 +151,5 @@ class IP:
         (string no formato x.y.z.w).
         """
         next_hop = self._next_hop(dest_addr)
-        # TODO: Assumindo que a camada superior é o protocolo TCP, monte o
-        # datagrama com o cabeçalho IP, contendo como payload o segmento.
-        self.enlace.enviar(datagrama, next_hop)
+        header = self._make_ipv4_header(self.meu_endereco, dest_addr, payload=segmento)
+        self.enlace.enviar(header + segmento, next_hop)
