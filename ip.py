@@ -15,7 +15,7 @@ class IP:
         self.enlace = enlace
         self.enlace.registrar_recebedor(self.__raw_recv)
         self.ignore_checksum = self.enlace.ignore_checksum
-        self.meu_endereco = None
+        #self.meu_endereco = None
 
     def _make_ipv4_header(
         self, src_addr, dest_addr, datagram=None, proto=IPPROTO_TCP, ttl=255, payload=""
