@@ -15,7 +15,7 @@ class IP:
         self.enlace = enlace
         self.enlace.registrar_recebedor(self.__raw_recv)
         self.ignore_checksum = self.enlace.ignore_checksum
-        #self.meu_endereco = None
+        self.meu_endereco = None
 
     def _make_ipv4_header(
         self, src_addr, dest_addr, datagram=None, proto=IPPROTO_TCP, ttl=255, payload=""
@@ -26,7 +26,7 @@ class IP:
         src_addr = str2addr(src_addr)
         dest_addr = str2addr(dest_addr)
 
-        if not datagram:
+        #if not datagram:
             dscp = 0 << 6
             ecn = 0
             ident = self._twos_comp(randint(0, 2**16), 16)
@@ -54,7 +54,7 @@ class IP:
         )
         return header
 
-    def _make_icmp_payload(self, datagram):
+    #def _make_icmp_payload(self, datagram):
         payload = datagram[:28]
         tlen = len(payload) + 8
         header = struct.pack("!bbhi", 11, 0, 0, tlen) + payload
