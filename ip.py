@@ -149,6 +149,7 @@ class IP:
         Envia segmento para dest_addr, onde dest_addr é um endereço IPv4
         (string no formato x.y.z.w).
         """
+        
         next_hop = self._next_hop(dest_addr)
         header = self._make_ipv4_header(self.meu_endereco, dest_addr, payload=segmento)
         self.enlace.enviar(header + segmento, next_hop)
